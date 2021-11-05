@@ -1,0 +1,689 @@
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>Meteo</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=1">
+<style type="text/css">
+	*{padding:0px;margin:0px;}
+	#myCanvasold{height:calc(100% - document.getElementById("buttonpanel").clientHeight - 2 );width:calc(100% - 2px);}
+	#stblup,#stblmid,#stblbot {background:#fffc;}
+	#stblup{position:absolute;top:30px;}
+	#stblmid{position:absolute;top:calc(50vh - 12px);}
+	#stblbot{position:absolute;bottom:8px;}
+	#conf{position:fixed;z-index: 10;visibility:hidden; background:#8889;}
+	#uptemp1,#uptemp2,#upwind,#miduptemp1,#miduptemp2,#midupwind,#middowntemp1,#middownwind,#downtemp1,#downtemp2,#downwind {float:left;padding:2px;text-shadow:1px 1px 1px #fff,-1px -1px 1px #fff,1px -1px 1px #fff, -1px 1px 1px #fff;}
+</style>
+</head>
+<body>
+	<div id="box" style="width: 100%; min-height: 100%;">
+		<div id="buttonpanel" style="width:99%">
+			<form name="test" style="float:left;padding: 5px 0px 0px 10px;">
+				<input name="checkgroup" type="checkbox">tr
+				<input name="checkgroup" type="checkbox">vr
+				<input name="checkgroup" type="checkbox">tl
+				<input name="checkgroup" type="checkbox">vl
+				<input name="checkgroup" type="checkbox">te
+			</form>
+			<input id="button3" onclick="screen_change('box');" value="FS" type="button">
+			<input id="buttonconf" onclick="hide_div('conf');" value="Conf" type="button">
+		</div>
+		<div id="conf">
+			<h1>Цвет линий</h1>
+			<div id="html5DIV">
+				<input type="color" id="html5color1" value="#ff0000" >
+				<input type="color" id="html5color2" value="#00ff00" >
+				<input type="color" id="html5color3" value="#0000ff" >
+				<input type="color" id="html5color4" value="#ff00ff" >
+				<input type="color" id="html5color5" value="#ffff00" >
+				<input type="color" id="html5color6" value="#00ffff" >
+			</div>
+			<div>
+				<input id="ctxlineWidth" type="number" min="1" max="20" step="1" value="5">толщина
+			</div>
+			<div>
+				<div>statusesp32</div>
+				<div id="stausesp32"></div>
+				<div>задержка сигнала от буйков секунд</div>
+				<div id="debugMB"></div>
+			</div>
+		</div>
+		<canvas id="myCanvas" style="border:1px solid #555;">Your browser does not support the HTML5 canvas tag.</canvas>
+		<div id="stblup">
+			<div id="uptemp1"></div>
+			<div id="uptemp2"></div>
+			<div id="upwind"></div>
+		</div>
+		<div id="stblmid">
+			<div>
+				<div id="miduptemp1"></div>
+				<div id="miduptemp2"></div>
+				<div id="midupwind"></div>
+			</div>
+			<div>
+				<div id="middowntemp1"></div>
+				<div id="middownwind"></div>
+			</div>
+		</div>
+		<div id="stblbot">
+			<div id="downtemp1"></div>
+			<div id="downtemp2"></div>
+			<div id="downwind"></div>
+		</div>
+	</div>
+
+	<script type="text/javascript">
+		printdebug=false;
+		let semafor=false;
+		semafornum=0;
+		let autoupdate=0;
+		let termik=0;
+		
+		let protocolversion = -1;
+		let packlen;
+		let headlen;
+		let arraylen;
+		let mbamount;
+		let datavect;
+		let longvect;
+		let ready = 0  ; //0-ready-longT;1-ready-longV;2-ready-realV;3-ready-realT;4-ready-mb1T;5-ready-mb2T;;;;15-ready-mb12T
+		let first;
+		let datafull = 0  ; //0-full-real;1-full-long;;;7
+		let statusdat = 0  ; //0-bmpInitError;1-bmpReadError;;7-othererror
+		let longT;
+		let longV;
+		let realV;
+		let realT;
+		let mbT0;
+		let mbT1;
+		let mbT2;
+		let mbT3;
+		
+		let realfull = 0;
+		let longfull = 0;
+
+		let realTmin,mbT0min,mbT1min,mbT2min,mbT3min,realVmin,longTmin,longVmin,realTmax,mbT0max,mbT1max,mbT2max,mbT3max,realVmax,longTmax,longVmax;
+		let anotrealTmin,anotmbT0min,anotrealVmin,anotlongTmin,anotlongVmin,anotrealTmax,anotmbT0max,anotrealVmax,anotlongTmax,anotlongVmax;
+
+		let items
+		let html5color1
+		let html5color2
+		let html5color3
+		let html5color4
+		let html5color5
+		let html5color6
+		let html5color7
+		let html5color8
+		
+		colorPicker = document.getElementById('html5color1')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		colorPicker = document.getElementById('html5color2')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		colorPicker = document.getElementById('html5color3')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		colorPicker = document.getElementById('html5color4')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		colorPicker = document.getElementById('html5color5')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		colorPicker = document.getElementById('html5color6')
+		colorPicker.addEventListener("change", watchColorPicker, false);
+		
+		function watchColorPicker(event) {
+			html5color1 = document.getElementById("html5color1").value
+			localStorage.setItem('html5color1', html5color1)
+			html5color2 = document.getElementById("html5color2").value
+			localStorage.setItem('html5color2', html5color2)
+			html5color3 = document.getElementById("html5color3").value
+			localStorage.setItem('html5color3', html5color3)
+			html5color4 = document.getElementById("html5color4").value
+			localStorage.setItem('html5color4', html5color4)
+			html5color5 = document.getElementById("html5color5").value
+			localStorage.setItem('html5color5', html5color5)
+			html5color6 = document.getElementById("html5color6").value
+			localStorage.setItem('html5color6', html5color6)
+			
+		}
+		
+		
+		if (localStorage.getItem('html5color1')) {
+			html5color1 = localStorage.getItem('html5color1')
+			document.getElementById("html5color1").value = html5color1
+		} else {
+			html5color1 = '#ff0000';
+			localStorage.setItem('html5color1', '#ff0000')
+		}
+		if (localStorage.getItem('html5color2')) {
+			html5color2 = localStorage.getItem('html5color2')
+			document.getElementById("html5color2").value = html5color2
+		} else {
+			html5color2 = '#00ff00';
+			localStorage.setItem('html5color2', '#00ff00')
+		}
+		if (localStorage.getItem('html5color3')) {
+			html5color3 = localStorage.getItem('html5color3')
+			document.getElementById("html5color3").value = html5color3
+		} else {
+			html5color3 = '#0000ff';
+			localStorage.setItem('html5color3', '#0000ff')
+		}
+		if (localStorage.getItem('html5color4')) {
+			html5color4 = localStorage.getItem('html5color4')
+			document.getElementById("html5color4").value = html5color4
+		} else {
+			html5color4 = '#ff00ff';
+			localStorage.setItem('html5color4', '#ff00ff')
+		}
+		if (localStorage.getItem('html5color5')) {
+			html5color5 = localStorage.getItem('html5color5')
+			document.getElementById("html5color5").value = html5color5
+		} else {
+			html5color5 = '#ffff00';
+			localStorage.setItem('html5color5', '#ffff00')
+		}
+		if (localStorage.getItem('html5color6')) {
+			html5color6 = localStorage.getItem('html5color6')
+			document.getElementById("html5color6").value = html5color6
+		} else {
+			html5color6 = '#00ffff';
+			localStorage.setItem('html5color6', '#00ffff')
+		}
+		
+		
+		function hide_div(id){
+			//console.log("hide_div " +id);
+			var x = document.getElementById(id);
+			if (x.style.visibility === "hidden") {
+				x.style.visibility = "visible";
+			} else {
+				x.style.visibility = "hidden";
+			}
+		}
+		function screen_change(id){
+			if(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement){
+				if("exitFullscreen" in document){
+					document.exitFullscreen();
+				}else if("webkitExitFullscreen" in document){
+					document.webkitExitFullscreen();
+				}else if("mozCancelFullScreen" in document){
+					document.mozCancelFullScreen();
+				}else if("msExitFullscreen" in document){
+					document.msExitFullscreen();
+				}
+			}else{
+				if("fullscreenEnabled" in document || "webkitFullscreenEnabled" in document || "mozFullScreenEnabled" in document || "msFullscreenEnabled" in document) {
+					if(document.fullscreenEnabled || document.webkitFullscreenEnabled || document.mozFullScreenEnabled || document.msFullscreenEnabled){
+						var element = document.getElementById(id);
+						if("requestFullscreen" in element){
+							element.requestFullscreen();
+						}else if("webkitRequestFullscreen" in element){
+							element.webkitRequestFullscreen();
+						}else if("mozRequestFullScreen" in element){
+							element.mozRequestFullScreen();
+						}else if("msRequestFullscreen" in element) {
+							element.msRequestFullscreen();
+						}
+					}
+				}
+			}
+		}
+
+
+		setInterval(function(){
+			if(document.test.checkgroup[0].checked==true || document.test.checkgroup[1].checked==true || document.test.checkgroup[2].checked==true || document.test.checkgroup[3].checked==true || document.test.checkgroup[4].checked==true  ){
+				if(semafor == false){
+					//tr,ext,vr,tl,vl
+					xhs.open("GET", "data.struct", true);
+					xhs.responseType = "arraybuffer";
+					xhs.send();
+					semafor=true;
+					semafornum=0;
+				}else{
+					if(semafornum>8){
+						semafornum=0;
+						semafor=false;
+					}else{
+						semafornum=semafornum+1;
+						//console.log(semafornum);
+					}
+				}
+			}
+		},1000);
+
+		function imgdata(id) {
+			enableRealT = false;
+			enableRealV = false;
+			enableLongT = false;
+			enableLongV = false;
+			enableMBT0  = false;
+			enableMBT1  = false;
+			enableMBT2  = false;
+			enableMBT3  = false;
+			visiblReal  = false;
+			visiblLong  = false;
+			//0-ready-longT;1-ready-longV;2-ready-realV;3-ready-realT;4-ready-mb1T;5-ready-mb2T;;;;15-ready-mb12T
+			if((document.test.checkgroup[0].checked==true) && (ready & (1<<3)) ){
+				enableRealT = true;
+			}
+			if((document.test.checkgroup[1].checked==true) && (ready & (1<<2)) ){
+				enableRealV = true;
+			}
+			if((document.test.checkgroup[2].checked==true) && (ready & (1<<0)) ){
+				enableLongT = true;
+			}
+			if((document.test.checkgroup[3].checked==true) && (ready & (1<<1)) ){
+				enableLongV = true;
+			}
+			if((document.test.checkgroup[4].checked==true) && (ready & (1<<4)) ){
+				enableMBT0 = true;
+			}
+			//проверка запрос пользователя и ответ сервера
+			if(enableRealT || enableRealV || enableMBT0 || enableMBT1 || enableMBT2 || enableMBT3){
+				visiblReal  = true;
+			}
+			if(enableLongT || enableLongV){
+				 visiblLong = true;
+			}
+			//sizeValue('myCanvas',window.innerHeight - 45,window.innerWidth - 2);
+			//document.getElementById('buttonpanel').height		undefined
+			//document.getElementById('myCanvas').height = window.innerHeight - document.getElementById('buttonpanel').height - 5;
+			document.getElementById(id).height = window.innerHeight - document.getElementById("buttonpanel").clientHeight - 2;
+			document.getElementById(id).width  = window.innerWidth  - 2;
+			
+			var heightgr=document.getElementById(id).height-2;
+			var hshift=0;
+			var widthb=document.getElementById(id).width-1;
+			var c = document.getElementById(id);
+			var ctx = c.getContext("2d");
+			
+			ctx.lineWidth = 1;
+			ctx.lineJoin = 'round';
+			
+			ctx.fillStyle = "rgb(255,255,255)";
+			ctx.fillRect(0, 0, document.getElementById(id).width, document.getElementById(id).height);
+			ctx.strokeStyle = '#ffffff';
+			ctx.stroke();
+			//vertical line
+			for(x = arraylen; x > 0; x -= 60 ){
+				ctx.beginPath();
+				ctx.moveTo(widthb *(1 - x/arraylen),0);
+				ctx.lineTo(widthb *(1 - x/arraylen),document.getElementById(id).height);
+				ctx.strokeStyle = '#506050';
+				ctx.stroke();
+			}
+
+			document.getElementById("uptemp1").style.color = document.getElementById("html5color1").value;
+			document.getElementById("uptemp2").style.color = document.getElementById("html5color2").value;
+			document.getElementById("upwind").style.color = document.getElementById("html5color3").value;
+			document.getElementById("downtemp1").style.color = document.getElementById("html5color1").value;
+			document.getElementById("downtemp2").style.color = document.getElementById("html5color2").value;
+			document.getElementById("downwind").style.color = document.getElementById("html5color3").value;
+			//
+			if( visiblReal && visiblLong ){
+				document.getElementById("stblmid").style.visibility = "visible";
+				document.getElementById("miduptemp1").style.color = document.getElementById("html5color1").value;
+				document.getElementById("miduptemp2").style.color = document.getElementById("html5color2").value;
+				document.getElementById("midupwind").style.color = document.getElementById("html5color3").value;
+				document.getElementById("middowntemp1").style.color = document.getElementById("html5color1").value;
+				document.getElementById("middownwind").style.color = document.getElementById("html5color3").value;
+				heightgr=(document.getElementById(id).height-4)/2;
+				hshift=heightgr+2;
+				ctx.beginPath();
+				ctx.moveTo(0,hshift-1);
+				ctx.lineTo(document.getElementById(id).width,hshift-1);
+				ctx.strokeStyle = '#506050';
+				ctx.stroke();
+
+				if(enableRealT){
+					document.getElementById("miduptemp1").value=anotrealTmin/100+"C";
+					document.getElementById("miduptemp1").innerHTML=anotrealTmin/100+"C";
+				}
+				if(enableRealV){
+					document.getElementById("midupwind").value=+(anotrealVmin*0.027).toFixed(2)+"m/c";
+					document.getElementById("midupwind").innerHTML=+(anotrealVmin*0.027).toFixed(2)+"m/c";
+				}
+				if(enableLongT){
+					document.getElementById("middowntemp1").value=anotlongTmax/100+"C";
+					document.getElementById("middowntemp1").innerHTML=anotlongTmax/100+"C";
+				}
+				if(enableLongV){
+					document.getElementById("middownwind").value=(anotlongVmax*0.027).toFixed(2)+"m/c";
+					document.getElementById("middownwind").innerHTML=(anotlongVmax*0.027).toFixed(2)+"m/c";
+				}
+				if(enableMBT0){
+					document.getElementById("miduptemp2").style.display = "block";
+					document.getElementById("miduptemp2").value=anotmbT0min/100+"C";
+					document.getElementById("miduptemp2").innerHTML=anotmbT0min/100+"C";
+					document.getElementById("downtemp2").style.display = "none";
+				}else{
+					document.getElementById("miduptemp2").style.display = "none";
+				}
+			}else{
+				document.getElementById("stblmid").style.visibility = "hidden";
+				document.getElementById("miduptemp2").style.display = "none";
+				
+			}
+
+			if( visiblReal ){
+				if(enableRealT){
+					document.getElementById("uptemp1").value=(anotrealTmax/100)+"C";
+					document.getElementById("uptemp1").innerHTML=(anotrealTmax/100)+"C";
+				}
+				if(enableRealV){
+					document.getElementById("upwind").value=(anotrealVmax*0.027).toFixed(2)+"m/c";
+					document.getElementById("upwind").innerHTML=(anotrealVmax*0.027).toFixed(2)+"m/c";
+				}
+				if(enableMBT0){
+					document.getElementById("uptemp2").style.display = "block";
+					document.getElementById("uptemp2").value=(anotmbT0max/100)+"C";
+					document.getElementById("uptemp2").innerHTML=(anotmbT0max/100)+"C";
+				}else{
+					document.getElementById("uptemp2").style.display = "none";
+				}
+				//
+				if(( enableLongT || enableLongV )==false ){
+					if(enableRealT){
+						document.getElementById("downtemp1").value=anotrealTmin/100+"C";
+						document.getElementById("downtemp1").innerHTML=anotrealTmin/100+"C";
+					}
+					if(enableRealV){
+						document.getElementById("downwind").value=(anotrealVmin*0.027).toFixed(2)+"m/c";
+						document.getElementById("downwind").innerHTML=(anotrealVmin*0.027).toFixed(2)+"m/c";
+					}
+					
+					document.getElementById("miduptemp2").style.display = "none";
+					if(enableMBT0){
+						document.getElementById("downtemp2").style.display = "block";
+						document.getElementById("downtemp2").value=anotmbT0min/100+"C";
+						document.getElementById("downtemp2").innerHTML=anotmbT0min/100+"C";
+					}else{
+						document.getElementById("downtemp2").style.display = "none";
+					}
+				}
+			}
+			if( visiblLong ){
+				if(enableLongT){
+					document.getElementById("downtemp1").value=anotlongTmin/100+"C";
+					document.getElementById("downtemp1").innerHTML=anotlongTmin/100+"C";
+				}
+				if(enableRealV){
+					document.getElementById("downwind").value=(anotlongVmin*0.027).toFixed(2)+"m/c";
+					document.getElementById("downwind").innerHTML=(anotlongVmin*0.027).toFixed(2)+"m/c";
+				}
+				
+				if((visiblReal)==false ){
+					if(enableLongT){
+						document.getElementById("uptemp1").value=anotlongTmax/100+"C";
+						document.getElementById("uptemp1").innerHTML=anotlongTmax/100+"C";
+					}
+					if(enableRealV){
+						document.getElementById("upwind").value=(anotlongVmax*0.027).toFixed(2)+"m/c";
+						document.getElementById("upwind").innerHTML=(anotlongVmax*0.027).toFixed(2)+"m/c";
+					}
+					document.getElementById("uptemp2").style.display = "none";
+					document.getElementById("miduptemp2").style.display = "none";
+				}
+			}
+			if(printdebug){
+				console.log("width = " + widthb + "\theight = " + (document.getElementById(id).height -4) + "\theightgr = " + heightgr);
+			}
+			//отрисовка
+			ctx.lineWidth = document.getElementById('ctxlineWidth').value;
+			if( visiblReal ){
+				if(realfull){		//full
+					graflenr=arraylen;
+				}else{
+					graflenr=datavect+1;
+				}
+				if(enableRealV){	//vr
+					ctx.beginPath();
+					ctx.moveTo(widthb,heightgr*(realVmax-realV[0])/(realVmax-realVmin)+1);
+					for(var i=1;i<graflenr;i++){
+						ctx.lineTo(widthb *(1 - i/arraylen),heightgr*(realVmax-realV[i])/(realVmax-realVmin)+1); 
+					}
+					ctx.strokeStyle = html5color3;
+					ctx.stroke();
+				}
+				if(enableRealT){	//tr
+					ctx.beginPath();
+					ctx.moveTo(widthb,heightgr*(realTmax-realT[0])/(realTmax-realTmin)+1);
+					for(i=1;i<graflenr;i++){
+						ctx.lineTo(widthb *(1 - i/arraylen),heightgr*(realTmax-realT[i])/(realTmax-realTmin)+1);
+					}
+					ctx.strokeStyle = html5color1;
+					ctx.stroke();
+				}
+				if(enableMBT0){	//te
+					ctx.beginPath();
+					ctx.moveTo(widthb,heightgr*(mbT0max-mbT0[0])/(mbT0max-mbT0min)+1);
+					for(i=1;i<graflenr;i++){
+						ctx.lineTo(widthb *(1 - i/arraylen),heightgr*(mbT0max-mbT0[i])/(mbT0max-mbT0min)+1);
+					}
+					ctx.strokeStyle = html5color2;
+					ctx.stroke();
+				}
+			}
+			if( visiblLong ){
+				if(longfull){		//full
+					graflenl=arraylen;
+				}else{
+					graflenl=longvect+1;
+				}
+				if(enableLongV){	//vl
+					ctx.beginPath();
+					ctx.moveTo(widthb,hshift+heightgr*(longVmax-longV[0])/(longVmax-longVmin)+1);
+					for(i=1;i<graflenl;i++){
+						ctx.lineTo(widthb *(1 - i/arraylen),hshift+heightgr*(longVmax-longV[i])/(longVmax-longVmin)+1);
+					}
+					ctx.strokeStyle = html5color3;
+					ctx.stroke();
+				}
+				if(enableLongT){	//tl
+					ctx.beginPath();
+					ctx.moveTo(widthb,hshift+heightgr*(longTmax-longT[0])/(longTmax-longTmin)+1);
+					for(i=1;i<graflenl;i++){
+						ctx.lineTo(widthb *(1 - i/arraylen),hshift+heightgr*(longTmax-longT[i])/(longTmax-longTmin)+1);
+					}
+					ctx.strokeStyle = html5color1;
+					ctx.stroke();
+				}
+			}
+		}
+		
+		var xhs = new XMLHttpRequest();
+		xhs.onload = function (oEvent) {
+			if (xhs.readyState == 4 && xhs.status == 200){
+				//arrayBuffer2 = xhs.response; // Note: not xh.responseText
+				//console.log("struct response");
+				//console.log(arrayBuffer2);
+				buff16Array = new Int16Array(xhs.response);
+				MBTshift    = new Int16Array(12);
+				if(printdebug){
+					console.log("16 response");
+					console.log(buff16Array);
+					console.log("length");
+					console.log(buff16Array.length);
+				}
+				if(buff16Array.length > 10){			//buff size
+					protocolversion = buff16Array[0];
+					packlen			= buff16Array[1];
+					headlen			= buff16Array[2];
+					arraylen		= buff16Array[3];
+					mbamount		= buff16Array[4];
+					datavect		= buff16Array[5];
+					longvect		= buff16Array[6];
+					ready			= buff16Array[7]; //0-ready-longT;1-ready-longV;2-ready-realV;3-ready-realT;4-ready-mb1T;5-ready-mb2T;;;;15-ready-mb12T
+					first			= buff16Array[8];
+					datafull		= (buff16Array[9] & 0xFF); //0-full-real;1-full-long;;;7
+					statusdat		= ((buff16Array[9] >>8) & 0xFF); //0-bmpInitError;1-bmpReadError;;7-othererror
+					//datavect указывакт на текущий элемент а не на их количество
+					for(m=0;m<12;m++){
+						MBTshift[m] = buff16Array[10 + m];
+					}
+					document.getElementById("debugMB").innerHTML = MBTshift;
+					document.getElementById("stausesp32").innerHTML = statusdat;
+					if(buff16Array.length == packlen){	//valid packet
+						if(printdebug){
+							console.log("valid packet length");
+						}
+						if(packlen == ( arraylen*(4 + mbamount) + headlen )){
+							if(printdebug){
+								console.log("valid packet struct");
+							}
+							longT	= new Int16Array(arraylen);
+							longV	= new Int16Array(arraylen);
+							realV	= new Int16Array(arraylen);
+							realT	= new Int16Array(arraylen);
+							mbT0	= new Int16Array(arraylen);
+							mbT1	= new Int16Array(arraylen);
+							mbT2	= new Int16Array(arraylen);
+							mbT3	= new Int16Array(arraylen);
+							longTmin=longTmax=buff16Array[headlen + (longvect )];
+							longVmin=longVmax=buff16Array[headlen + arraylen +(longvect )];
+							for( i = 0; i <= longvect; i++){
+								longT[i]	= buff16Array[headlen + (longvect - i )];
+								longV[i]	= buff16Array[headlen + arraylen +(longvect - i )];
+								if(longT[i] > longTmax){ longTmax = longT[i];}
+								if(longT[i] < longTmin){ longTmin = longT[i];}
+								if(longV[i] > longVmax){ longVmax = longV[i];}
+								if(longV[i] < longVmin){ longVmin = longV[i];}
+							}
+							if(datafull & 2){							//long full
+								longfull = 1;
+								for( i = longvect + 1; i < arraylen; i++){
+									longT[i]	= buff16Array[headlen + (arraylen + longvect - i)];
+									longV[i]	= buff16Array[headlen + arraylen +(arraylen + longvect - i)];
+									if(longT[i] > longTmax){ longTmax = longT[i];}
+									if(longT[i] < longTmin){ longTmin = longT[i];}
+									if(longV[i] > longVmax){ longVmax = longV[i];}
+									if(longV[i] < longVmin){ longVmin = longV[i];}
+								}
+							}
+							realVmin=realVmax=buff16Array[headlen + (2 * arraylen) + (datavect )];
+							realTmin=realTmax=buff16Array[headlen + (3 * arraylen) + (datavect )];
+							mbT0min=mbT0max=buff16Array[headlen + (4 * arraylen) + (datavect )];
+							mbT1min=mbT1max=buff16Array[headlen + (5 * arraylen) + (datavect )];
+							mbT2min=mbT2max=buff16Array[headlen + (6 * arraylen) + (datavect )];
+							mbT3min=mbT3max=buff16Array[headlen + (7 * arraylen) + (datavect )];
+							for( i = 0; i <= datavect; i++){
+								realV[i]	= buff16Array[headlen + (2 * arraylen) + (datavect - i)];
+								realT[i]	= buff16Array[headlen + (3 * arraylen) + (datavect - i)];
+								if(realV[i] > realVmax){ realVmax = realV[i];}
+								if(realV[i] < realVmin){ realVmin = realV[i];}
+								if(realT[i] > realTmax){ realTmax = realT[i];}
+								if(realT[i] < realTmin){ realTmin = realT[i];}
+								
+								if(mbamount > 0){
+									mbT0[i]	= buff16Array[headlen + (4 * arraylen) + (datavect - i)];
+									if(mbT0[i] > mbT0max){ mbT0max = mbT0[i];}
+									if(mbT0[i] < mbT0min){ mbT0min = mbT0[i];}
+								}
+								if(mbamount > 1){
+									mbT1[i]	= buff16Array[headlen + (5 * arraylen) + (datavect - i)];
+									if(mbT1[i] > mbT1max){ mbT1max = mbT1[i];}
+									if(mbT1[i] < mbT1min){ mbT1min = mbT1[i];}
+								}
+								if(mbamount > 2){
+									mbT2[i]	= buff16Array[headlen + (6 * arraylen) + (datavect - i)];
+									if(mbT2[i] > mbT2max){ mbT2max = mbT2[i];}
+									if(mbT2[i] < mbT2min){ mbT2min = mbT2[i];}
+								}
+								if(mbamount > 3){
+									mbT3[i]	= buff16Array[headlen + (7 * arraylen) + (datavect - i)];
+									if(mbT3[i] > mbT3max){ mbT3max = mbT3[i];}
+									if(mbT3[i] < mbT3min){ mbT3min = mbT3[i];}
+								}
+							}
+							if(datafull & 1){							//real full
+								realfull = 1;
+								for( i = datavect + 1; i < arraylen; i++){
+									//realV[i]	= buff16Array[headlen + (2 * arraylen) + datavect + (arraylen - i)];
+									//realT[i]	= buff16Array[headlen + (3 * arraylen) + datavect + (arraylen - i)];
+									realV[i]	= buff16Array[headlen + (3 * arraylen) + datavect - i];
+									realT[i]	= buff16Array[headlen + (4 * arraylen) + datavect - i];
+									if(realV[i] > realVmax){ realVmax = realV[i];}
+									if(realV[i] < realVmin){ realVmin = realV[i];}
+									if(realT[i] > realTmax){ realTmax = realT[i];}
+									if(realT[i] < realTmin){ realTmin = realT[i];}
+									if(mbamount > 0){
+										//mbT0[i]	= buff16Array[headlen + (4 * arraylen) + datavect + (arraylen - i)];
+										mbT0[i]	= buff16Array[headlen + (5 * arraylen) + datavect  - i];
+										if(mbT0[i] > mbT0max){ mbT0max = mbT0[i];}
+										if(mbT0[i] < mbT0min){ mbT0min = mbT0[i];}
+									}
+									if(mbamount > 1){
+										//mbT1[i]	= buff16Array[headlen + (5 * arraylen) + datavect + (arraylen - i)];
+										mbT1[i]	= buff16Array[headlen + (6 * arraylen) + datavect - i];
+										if(mbT1[i] > mbT1max){ mbT1max = mbT1[i];}
+										if(mbT1[i] < mbT1min){ mbT1min = mbT1[i];}
+									}
+									if(mbamount > 2){
+										//mbT2[i]	= buff16Array[headlen + (6 * arraylen) + datavect + (arraylen - i)];
+										mbT2[i]	= buff16Array[headlen + (7 * arraylen) + datavect - i];
+										if(mbT2[i] > mbT2max){ mbT2max = mbT2[i];}
+										if(mbT2[i] < mbT2min){ mbT2min = mbT2[i];}
+									}
+									if(mbamount > 3){
+										//mbT3[i]	= buff16Array[headlen + (7 * arraylen) + datavect + (arraylen - i)];
+										mbT3[i]	= buff16Array[headlen + (8 * arraylen) + datavect - i];
+										if(mbT3[i] > mbT3max){ mbT3max = mbT3[i];}
+										if(mbT3[i] < mbT3min){ mbT3min = mbT3[i];}
+									}
+								}
+							}
+							anotlongTmax=longTmax;
+							anotlongTmin=longTmin;
+							anotlongVmax=longVmax;
+							anotlongVmin=longVmin;
+							anotmbT0max=mbT0max;
+							anotmbT0min=mbT0min;
+							anotrealTmax=realTmax;
+							anotrealTmin=realTmin;
+							anotrealVmax=realVmax;
+							anotrealVmin=realVmin;
+							mindeltaTimg = 20;
+							mindeltaVimg = 30;
+							if((longTmax - longTmin) < mindeltaTimg){longTmin = (longTmax + longTmin - mindeltaTimg)/2;longTmax = longTmin + mindeltaTimg; }
+							if((longVmax - longVmin) < mindeltaVimg){longVmin = (longVmax + longVmin - mindeltaVimg)/2;longVmax = longVmin + mindeltaVimg; }
+							if((mbT0max  - mbT0min ) < mindeltaTimg){mbT0min  = (mbT0max  + mbT0min  - mindeltaTimg)/2;mbT0max  = mbT0min  + mindeltaTimg; }
+							if((realTmax - realTmin) < mindeltaTimg){realTmin = (realTmax + realTmin - mindeltaTimg)/2;realTmax = realTmin + mindeltaTimg; }
+							if((realVmax - realVmin) < mindeltaVimg){realVmin = (realVmax + realVmin - mindeltaVimg)/2;realVmax = realVmin + mindeltaVimg; }
+							if(printdebug){
+								console.log("longvect");
+								console.log(longvect);
+								console.log("datavect");
+								console.log(datavect);
+								console.log("longT\t" + longTmin +"\t" + longTmax);
+								console.log(longT);
+								console.log("longV\t" + longVmin +"\t" + longVmax);
+								console.log(longV);
+								console.log("realV\t" + realVmin +"\t" + realVmax);
+								console.log(realV);
+								console.log("realT\t" + realTmin +"\t" + realTmax);
+								console.log(realT);
+								console.log("mbT0\t" + mbT0min +"\t" + mbT0max);
+								console.log(mbT0);
+								console.log("mbT1");
+								console.log(mbT1);
+								console.log("mbT2");
+								console.log(mbT2);
+								console.log("mbT3");
+								console.log(mbT3);
+							}
+							imgdata("myCanvas");
+						}else{
+							ready = 0;					//error struct
+							if(printdebug){
+								console.log("invalid packet struct");
+							}
+						}
+					}else{
+						if(printdebug){
+							console.log("invalid packet len");
+						}
+					}
+				}
+				semafor=false;
+			}
+		};
+
+	</script>
+</body></html>
